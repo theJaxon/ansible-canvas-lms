@@ -47,3 +47,11 @@ sudo -u postgres createdb canvas_production --owner=canvas
 
 #### Debugging:
 Canvas error log files are stored at `/var/log/apache2/canvas_errors.log`
+
+---
+
+#### Serving the app:
+cd /var/canvas && bundle exec rails server
+
+#### TODO:
+1. Configure SSL for domain (file located at canvs/templates/domain.j2) 

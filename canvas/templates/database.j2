@@ -1,0 +1,28 @@
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#database-configuration
+# do not create a queue: section for your test environment
+test:
+  adapter: postgresql
+  encoding: utf8
+  database: canvas_test
+  host: localhost
+  username: {{ postgres_username }}
+  password: {{ postgres_password }}
+  timeout: 5000
+
+development:
+  adapter: postgresql
+  encoding: utf8
+  database: canvas_development
+  host: {{ postgres_host }}
+  username: {{ postgres_username }}
+  password: {{ postgres_password }}
+  timeout: 5000
+
+production:
+  adapter: postgresql
+  encoding: utf8
+  database: canvas_production
+  host: {{ postgres_host }}
+  username: {{ postgres_username }}
+  password: {{ postgres_password }}
+  timeout: 5000

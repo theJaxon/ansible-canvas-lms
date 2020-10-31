@@ -1,0 +1,5 @@
+---
+# handlers file for canvas
+- name: reload bashrc
+  shell: "exec $SHELL"
+  

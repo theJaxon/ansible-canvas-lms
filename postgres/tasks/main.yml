@@ -1,0 +1,56 @@
+---
+# tasks file for postgres
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#database-installation-and-configuration
+# https://www.postgresql.org/download/linux/ubuntu/
+- name: Add postgresql repo 
+  copy:
+    content: "{{ item.repo }}"
+    dest: "{{ item.dest }}"
+  loop: "{{ postgres_repo }}"
+
+- name: Add postgresql key 
+  apt_key:
+    url: "{{ postgres_key }}"
+
+- name: Update cache and install required packages
+  apt:
+    name: "{{ packages }}"
+    update_cache: True 
+
+# Configuring Postgresql 
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#configuring-postgres
+# https://www.postgresql.org/docs/9.5/auth-pg-hba-conf.html
+
+# TODO Change this configuration as it's not secure
+- name: Modify postgresql.conf to make postgres listen to all connection requests on port 5432
+  lineinfile:
+    line: "listen_addresses = '*'"
+    regexp: "^#listen_addresses"
+    path: "{{ postgres_conf_dir}}/postgresql.conf"
+  tags: postgres-cfg
+
+- name: Modify pg_hba.conf to allow all connections 
+  blockinfile:
+    block: |
+      local   all postgres                trust
+      local   all all                     trust
+      host  all  all 0.0.0.0/0           trust
+      host  all  all ::1/128             trust
+      host  all  all 192.168.100.201/16  trust
+    path: "{{ postgres_conf_dir }}/pg_hba.conf"
+  tags: postgres-cfg
+
+- name: create canvas user
+  become_user: postgres  
+  postgresql_user:
+    db: postgres 
+    name: canvas 
+    password: canvas
+  tags: postgres-cfg
+
+- name: create canvas db 
+  become_user: postgres 
+  postgresql_db:
+    name: canvas_production 
+    owner: canvas 
+  tags: postgres-cfg

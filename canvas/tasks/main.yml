@@ -1,0 +1,267 @@
+---
+# tasks file for canvas
+- name: Get current username 
+  become: False 
+  command: whoami
+  register: whoami_var
+
+- name: set username and ruby version 
+  set_fact:
+    username: "{{ whoami_var.stdout }}" 
+    ruby_version: 2.6.0
+
+- name: Setting the rest of the facts
+  set_fact:
+    gems_bin_dir: "/home/{{ username }}/.gem/ruby/{{ ruby_version }}/bin/"
+    canvas_tar: "{{ canvas_dir }}/canvas-lms-stable.tar.gz"
+
+- name: Check if canvas dir is present
+  stat:
+    path: "{{ canvas_dir }}"
+  register: canvas_dir_var
+
+- name: Create canvas dir if not present 
+  file:
+    path: "{{ canvas_dir }}"
+    state: directory 
+  when: not canvas_dir_var.stat.exists
+
+- name: Check if canvas tar already exists 
+  stat: 
+    path: "{{ canvas_tar }}"
+  register: canvas_tar_var
+  
+- name: Download canvas tar file if not present  
+  get_url:
+    url: "{{ canvas_url }}"
+    dest: "{{ canvas_tar }}"
+  when: not canvas_tar_var.stat.exists
+
+- name: Extract canvas tar file 
+  unarchive:
+    src: "{{ canvas_tar }}"
+    dest: "{{ canvas_dir }}"
+    remote_src: True 
+    extra_opts: [--strip-components=1] # Extract without the parent directory
+
+# Change permissions for /var/canvas 
+# MANUAL sudo chown -R username:username /var/canvas
+
+- name: Add ruby repository 
+  apt_repository:
+    repo: "{{ ruby_repo }}"
+    update_cache: True 
+
+- name: Install Ruby 
+  apt:
+    name: "{{ ruby_dependencies }}"
+    state: present 
+
+- name: Add node and yarn repos 
+  copy:
+    content: "{{ item.content }}"
+    dest: "{{ item.dest }}"
+  loop: "{{ repos }}"
+
+- name: Add nodeJS and yarn keys 
+  apt_key:
+    url: "{{ item.key }}"
+  loop: "{{ repos }}"
+
+- name: Update cache and install nodeJS and yarn 
+  apt:
+    name: "{{ item.name }}"
+    update_cache: True 
+  loop: "{{ repos }}"
+
+- name: Install required gems  
+  become_user: "{{ username }}"
+  gem:
+    name: "{{ item.name }}" 
+    version: "{{ item.version }}"
+    #install_dir: /var/lib/gems/2.6.0/bin
+    #user_install: False 
+    state: present
+  loop: "{{ gems }}"
+
+- name: Add ruby executable dir current PATH
+  lineinfile:
+    line: export PATH=$PATH:$HOME/.gem/ruby/{{ ruby_version}}/bin/
+    dest: "/home/{{ username }}/.bashrc"
+  notify: reload bashrc
+
+- name: Run bundler 
+  become_user: "{{ username }}"
+  bundler:
+    executable: "{{ gems_bin_dir }}/bundle"
+    chdir: "{{ canvas_dir }}"
+    state: present
+
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#yarn-installation
+- name: Install requirements from package.json 
+  become_user: "{{ username }}"
+  yarn:
+    path: "{{ canvas_dir }}"
+  register: result_var_1
+  delay: 10 # Wait for 10 seconds before retrying
+  retries: 4
+  until: result_var_1.rc == 0
+
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#canvas-default-configuration
+- name: copy canvas default configuration files and configure dynamic settings 
+  copy:
+    src: "{{ canvas_dir }}/config/{{ item }}.yml.example"
+    dest: "{{ canvas_dir }}/config/{{ item }}.yml"
+    remote_src: True 
+  loop: "{{ default_config_files }}"
+  tags: configuration
+
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#database-configuration
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#outgoing-mail-configuration
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#url-configuration
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#security-configuration
+- name: copy configuration files 
+  template:
+    src: "{{ item }}.j2"
+    dest: "{{ canvas_dir }}/config/{{ item }}.yml"
+  loop: "{{ config_files }}"
+  tags: configuration
+
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#generate-assets
+- name: Generate Assets [Directories]
+  become_user: vagrant
+  file:
+    state: directory
+    dest: "{{ canvas_dir }}/{{ item }}"
+  loop: "{{ assets_dirs }}"
+  tags: assets
+
+- name: Generate Assets [files]
+  file:
+    state: touch 
+    dest: "{{ canvas_dir }}/{{ item }}"
+  loop: "{{ assets_files }}"
+  tags: assets
+
+- name: Change permissions for assets
+  file:
+    path: "{{ canvas_dir }}/{{ assets_ownership }}"
+    owner: vagrant
+    group: vagrant
+    mode: '0755'
+    recurse: True 
+  tags: assets
+
+
+- name: Install packages based on package.json.
+  yarn:
+    path: "{{ canvas_dir }}"
+  register: result_var_2
+  delay: 10 # Wait for 10 seconds before retrying
+  retries: 4
+  until: result_var_2.rc == 0
+
+# MANUAL SOLUTION FOR NOW !!
+# sudo chown -R vagrant:vagrant /var/canvas
+# RAILS_ENV=production bundle exec rake canvas:compile_assets
+
+# - name: Compile assets 
+#   become_user: vagrant 
+#   shell:
+#     chdir: "{{ canvas_dir }}"
+#     cmd: RAILS_ENV=production bundle exec rake canvas:compile_assets
+#   environment:
+#   - PATH: "{{ ansible_env.PATH }}:/home/vagrant/.gem/ruby/2.6.0/bin/"
+#   register: result_var_3
+#   delay: 10 # Wait for 10 seconds before retrying
+#   retries: 4
+#   until: result_var_3.rc == 0
+#   tags: assets
+#   # /var/canvas/node_modules/.bin/_mocha
+
+- name: Change ownership for public/dist/brandable_css
+  file:
+    path: "{{ canvas_dir }}/public/dist/brandable_css"
+    owner: "{{ username }}" 
+    group: "{{ username }}"
+    mode: '0755'
+    recurse: True 
+  tags: assets
+
+- name: Add env variables 
+  blockinfile:
+    block: |
+      export CANVAS_LMS_ADMIN_EMAIL="canvas@example.com"
+      export CANVAS_LMS_ADMIN_PASSWORD="Canvas123_"
+      export CANVAS_LMS_ACCOUNT_NAME="canvas"
+      export CANVAS_LMS_STATS_COLLECTION="opt_out"
+    dest: "/home/{{ username }}/.bashrc"
+
+
+# Database Population
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#database-population
+# - name: Populate DB 
+#   become_user: vagrant 
+#   shell: 
+#     chdir: "{{ canvas_dir }}"
+#     cmd: "RAILS_ENV=production bundle exec rake db:initial_setup"
+#   environment: 
+#     - CANVAS_LMS_ADMIN_EMAIL: "{{ canvas_server_admin }}"
+#     - CANVAS_LMS_ADMIN_PASSWORD: "{{ postgres_password }}"
+#     - CANVAS_LMS_ACCOUNT_NAME: "{{ postgres_username }}"
+#     - CANVAS_LMS_STATS_COLLECTION: "opt_out"
+#     - PATH: "{{ ansible_env.PATH }}:/home/vagrant/.gem/ruby/2.6.0/bin/"
+#   tags: db-config
+
+# Passenger installation 
+# https://www.phusionpassenger.com/library/install/apache/install/oss/bionic/#step-1:-install-passenger-packages
+- name: Add passenger key
+  apt_key:
+    keyserver: "{{ item.keyserver }}"
+    id: "{{ item.key_id }}"
+  loop: "{{ passenger }}"
+  tags: passenger 
+
+- name: Add passenger repo 
+  copy:
+    content: deb https://oss-binaries.phusionpassenger.com/apt/passenger bionic main
+    dest: "{{ repo_dir }}/passenger.list"
+  tags: passenger 
+
+- name: Update cache and install apaceh, passenger and passenger apache module 
+  apt:
+    name: "{{ item }}"
+    update_cache: True 
+  loop:
+  - passenger 
+  - apache2
+  - libapache2-mod-passenger
+  tags: passenger 
+    
+# https://www.phusionpassenger.com/library/install/apache/install/oss/bionic/#step-2:-enable-the-passenger-apache-module-and-restart-apache
+- name: Enable the passenger apache module and restart apache 
+  apache2_module:
+    name: "{{ item }}"
+    state: present 
+  loop: 
+  - passenger 
+  - rewrite
+  - ssl 
+  tags: passenger 
+
+- name: Remove symlink for default configured site 
+  file: 
+    path: /etc/apache2/sites-enabled/000-default.conf 
+    state: absent
+  tags: apache
+
+- name: Create canvas.conf file 
+  template:
+    src: canvas.j2
+    dest: /etc/apache2/sites-available/canvas.conf
+  tags: apache
+
+- name: Enable canvas configuration 
+  command: "a2ensite canvas"
+  tags: apache
+

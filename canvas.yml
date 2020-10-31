@@ -1,0 +1,7 @@
+- hosts: db 
+  roles:
+  - postgres
+  
+- hosts: app 
+  roles:
+  - canvas

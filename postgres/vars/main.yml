@@ -1,0 +1,11 @@
+---
+# vars file for postgres
+postgres_repo:
+  - repo: deb http://apt.postgresql.org/pub/repos/apt bionic-pgdg main
+    dest: /etc/apt/sources.list.d/pgdg.list
+
+packages: 
+  - postgresql-9.5
+  - python3-psycopg2 # Required by postgres ansible module
+postgres_key: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+postgres_conf_dir: /etc/postgresql/9.5/main
