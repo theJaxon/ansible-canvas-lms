@@ -1,5 +1,18 @@
 # ansible-canvas-lms
-Deploy Canvas LMS to using ansible
+Deploy Canvas LMS With Postgresql and redis to `Ubuntu 18.04 Bionic`  using ansible
+
+Example Playbook
+----------------
+
+```yml
+- hosts: all
+  roles:
+  - postgres
+  
+- hosts: all 
+  roles:
+  - canvas
+```
 
 ### [Running Postgres on a different server](https://github.com/instructure/canvas-lms/wiki/Production-Start#running-postgres-on-a-different-server)
 To allow communication between our server and postgresql, the following 2 files must be modified: 
@@ -22,35 +35,33 @@ host  all  all localhost  trust
 
 In `postgresql.conf` 
 ```
-# - Connection Settings -
 listen_addresses = '*'   
-```
-
-Use the following command to connect from the remote machine 
-`psql -h <address> -U postgres -p 5432`
-
-#### Configure canvas user for postgres:
-```bash
-sudo -u postgres createuser canvas --no-createdb --no-superuser --no-createrole --pwprompt
-sudo -u postgres createdb canvas_production --owner=canvas
 ```
 
 ---
 
 #### Helpful Postgresql commands:
-```
+```bash
 \l # Display list of databases 
 \du # Display user list
 ```
 ---
 
 #### Debugging:
-Canvas error log files are stored at `/var/log/apache2/canvas_errors.log`
-
+* Canvas error log files are stored at `/var/log/apache2/canvas_errors.log`
+* Check the postgresql db using 
+```bash
+sudo su - postgres
+psql
+```
 ---
-
-#### Serving the app:
-cd /var/canvas && bundle exec rails server
 
 #### TODO:
 1. Configure SSL for domain (file located at canvs/templates/domain.j2) 
+
+---
+
+Author Information
+------------------
+
+Created by [theJaxon](https://github.com/theJaxon)

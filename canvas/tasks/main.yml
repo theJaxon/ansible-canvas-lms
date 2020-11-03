@@ -224,7 +224,7 @@
     dest: "{{ repo_dir }}/passenger.list"
   tags: passenger 
 
-- name: Update cache and install apaceh, passenger and passenger apache module 
+- name: Update cache and install apache, passenger and passenger apache module 
   apt:
     name: "{{ item }}"
     update_cache: True 
