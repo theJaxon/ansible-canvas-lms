@@ -1,3 +1,6 @@
 ---
 # defaults file for canvas
+canvas_dir: /var/canvas
+username: vagrant # CHANGE IT ACCORDINGLY
+ruby_version: 2.6.0
 repo_dir: /etc/apt/sources.list.d

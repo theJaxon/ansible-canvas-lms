@@ -1,7 +1,6 @@
 # ansible-canvas-lms
 Deploy Canvas LMS to using ansible
 
-
 ### [Running Postgres on a different server](https://github.com/instructure/canvas-lms/wiki/Production-Start#running-postgres-on-a-different-server)
 To allow communication between our server and postgresql, the following 2 files must be modified: 
 1. [`pg_hba.conf`](https://www.postgresql.org/docs/current/auth-pg-hba-conf.html) located at /etc/postgresql/9.5/main/pg_hba.conf 
@@ -18,7 +17,7 @@ local   all             all                                     trust
 host    all             all             0.0.0.0/0            trust
 # IPv6 local connections:
 host    all             all             ::1/128                 trust
-host  all  all 192.168.100.201/16  trust
+host  all  all localhost  trust
 ```
 
 In `postgresql.conf` 

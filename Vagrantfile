@@ -1,12 +1,12 @@
 Vagrant.configure("2") do |config|
   config.vm.box_check_update = false
   config.vm.synced_folder ".", "/vagrant", type: "rsync"
-  config.vm.define "database" do |database|
-    database.vm.box = "bento/ubuntu-18.04"
-    database.vm.hostname = "Postgres"
-    database.vm.network "private_network", ip: "192.168.100.200"
-    database.vm.network "forwarded_port", guest: 5432 , host: 5432 # Postgresql port
-  end
+  # config.vm.define "database" do |database|
+  #   database.vm.box = "bento/ubuntu-18.04"
+  #   database.vm.hostname = "Postgres"
+  #   database.vm.network "private_network", ip: "192.168.100.200"
+  #   database.vm.network "forwarded_port", guest: 5432 , host: 5432 # Postgresql port
+  # end
 
   config.vm.define "app" do |app|
     app.vm.box = "bento/ubuntu-18.04"

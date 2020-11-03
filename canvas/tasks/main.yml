@@ -1,111 +1,119 @@
 ---
 # tasks file for canvas
-- name: Get current username 
-  become: False 
-  command: whoami
-  register: whoami_var
-
-- name: set username and ruby version 
-  set_fact:
-    username: "{{ whoami_var.stdout }}" 
-    ruby_version: 2.6.0
-
-- name: Setting the rest of the facts
-  set_fact:
-    gems_bin_dir: "/home/{{ username }}/.gem/ruby/{{ ruby_version }}/bin/"
-    canvas_tar: "{{ canvas_dir }}/canvas-lms-stable.tar.gz"
+# https://github.com/instructure/canvas-lms/wiki/Production-Start#canvas-ownership
+- name: Add canvasuser 
+  user:
+    name: canvasuser 
+    password: '*' # disabled password https://docs.ansible.com/ansible/latest/collections/ansible/builtin/user_module.html#parameter-password
+    comment: canvas
 
 - name: Check if canvas dir is present
   stat:
     path: "{{ canvas_dir }}"
   register: canvas_dir_var
+  tags: pre_req
 
 - name: Create canvas dir if not present 
   file:
     path: "{{ canvas_dir }}"
     state: directory 
   when: not canvas_dir_var.stat.exists
+  tags: pre_req
+
+- name: Change permissions for /var/canvas 
+  command: "chown -R {{ username }}:{{ username }} {{ canvas_dir }}"
+  args:
+    warn: false
+  tags: pre_req
 
 - name: Check if canvas tar already exists 
   stat: 
     path: "{{ canvas_tar }}"
   register: canvas_tar_var
-  
-- name: Download canvas tar file if not present  
+  tags: pre_req
+
+- name: Download canvas tar file if not present 
+  become_user: "{{ username }}" 
   get_url:
     url: "{{ canvas_url }}"
     dest: "{{ canvas_tar }}"
   when: not canvas_tar_var.stat.exists
+  tags: pre_req
 
 - name: Extract canvas tar file 
+  become_user: "{{ username }}"
   unarchive:
     src: "{{ canvas_tar }}"
     dest: "{{ canvas_dir }}"
     remote_src: True 
     extra_opts: [--strip-components=1] # Extract without the parent directory
-
-# Change permissions for /var/canvas 
-# MANUAL sudo chown -R username:username /var/canvas
+  tags: pre_req
 
 - name: Add ruby repository 
   apt_repository:
     repo: "{{ ruby_repo }}"
     update_cache: True 
-
+  tags: pre_req
+  
 - name: Install Ruby 
   apt:
     name: "{{ ruby_dependencies }}"
     state: present 
+  tags: pre_req
 
 - name: Add node and yarn repos 
   copy:
     content: "{{ item.content }}"
     dest: "{{ item.dest }}"
   loop: "{{ repos }}"
+  tags: pre_req
 
 - name: Add nodeJS and yarn keys 
   apt_key:
     url: "{{ item.key }}"
   loop: "{{ repos }}"
+  tags: pre_req
+
+- name: Add redis server repo
+  apt_repository:
+    repo: "{{ redis_ppa }}"
+  tags: pre_req
 
 - name: Update cache and install nodeJS and yarn 
   apt:
     name: "{{ item.name }}"
     update_cache: True 
   loop: "{{ repos }}"
+  tags: pre_req
 
 - name: Install required gems  
-  become_user: "{{ username }}"
   gem:
     name: "{{ item.name }}" 
     version: "{{ item.version }}"
-    #install_dir: /var/lib/gems/2.6.0/bin
-    #user_install: False 
     state: present
+    user_install: False 
   loop: "{{ gems }}"
+  tags: pre_req
 
-- name: Add ruby executable dir current PATH
-  lineinfile:
-    line: export PATH=$PATH:$HOME/.gem/ruby/{{ ruby_version}}/bin/
-    dest: "/home/{{ username }}/.bashrc"
-  notify: reload bashrc
-
-- name: Run bundler 
+# Needs sudo
+- name: Run bundle install 
   become_user: "{{ username }}"
-  bundler:
-    executable: "{{ gems_bin_dir }}/bundle"
+  command: bundle _2.1.4_ install --path vendor/bundle
+  args:
     chdir: "{{ canvas_dir }}"
-    state: present
+  tags: pre_req
 
-# https://github.com/instructure/canvas-lms/wiki/Production-Start#yarn-installation
-- name: Install requirements from package.json 
+- name: Fix json not being installed with bundler 
+  become_user: "{{ username }}"
+  command: bundle package
+  args:
+    chdir: "{{ canvas_dir }}"
+
+- name: Install node modules from package.json
   become_user: "{{ username }}"
   yarn:
     path: "{{ canvas_dir }}"
-  register: result_var_1
-  delay: 10 # Wait for 10 seconds before retrying
-  retries: 4
-  until: result_var_1.rc == 0
+  tags: pre_req
 
 # https://github.com/instructure/canvas-lms/wiki/Production-Start#canvas-default-configuration
 - name: copy canvas default configuration files and configure dynamic settings 
@@ -114,7 +122,7 @@
     dest: "{{ canvas_dir }}/config/{{ item }}.yml"
     remote_src: True 
   loop: "{{ default_config_files }}"
-  tags: configuration
+  tags: config
 
 # https://github.com/instructure/canvas-lms/wiki/Production-Start#database-configuration
 # https://github.com/instructure/canvas-lms/wiki/Production-Start#outgoing-mail-configuration
@@ -125,93 +133,81 @@
     src: "{{ item }}.j2"
     dest: "{{ canvas_dir }}/config/{{ item }}.yml"
   loop: "{{ config_files }}"
-  tags: configuration
+  tags: config
 
 # https://github.com/instructure/canvas-lms/wiki/Production-Start#generate-assets
 - name: Generate Assets [Directories]
-  become_user: vagrant
+  become_user: "{{ username }}"
   file:
     state: directory
     dest: "{{ canvas_dir }}/{{ item }}"
   loop: "{{ assets_dirs }}"
-  tags: assets
+  tags: config
 
 - name: Generate Assets [files]
+  become_user: "{{ username }}"
   file:
     state: touch 
     dest: "{{ canvas_dir }}/{{ item }}"
   loop: "{{ assets_files }}"
-  tags: assets
+  tags: config
 
-- name: Change permissions for assets
-  file:
-    path: "{{ canvas_dir }}/{{ assets_ownership }}"
-    owner: vagrant
-    group: vagrant
-    mode: '0755'
-    recurse: True 
-  tags: assets
-
-
-- name: Install packages based on package.json.
+- name: Run yarn install again 
+  become_user: "{{ username }}"
   yarn:
     path: "{{ canvas_dir }}"
-  register: result_var_2
-  delay: 10 # Wait for 10 seconds before retrying
-  retries: 4
-  until: result_var_2.rc == 0
+  tags: config
 
-# MANUAL SOLUTION FOR NOW !!
-# sudo chown -R vagrant:vagrant /var/canvas
-# RAILS_ENV=production bundle exec rake canvas:compile_assets
+- name: Compile assets (This takes a very long time)
+  become_user: "{{ username }}"
+  shell: RAILS_ENV=production bundle exec rake canvas:compile_assets
+  args:
+    chdir: "{{ canvas_dir }}"
+  tags: rake 
 
-# - name: Compile assets 
-#   become_user: vagrant 
-#   shell:
-#     chdir: "{{ canvas_dir }}"
-#     cmd: RAILS_ENV=production bundle exec rake canvas:compile_assets
-#   environment:
-#   - PATH: "{{ ansible_env.PATH }}:/home/vagrant/.gem/ruby/2.6.0/bin/"
-#   register: result_var_3
-#   delay: 10 # Wait for 10 seconds before retrying
-#   retries: 4
-#   until: result_var_3.rc == 0
-#   tags: assets
-#   # /var/canvas/node_modules/.bin/_mocha
-
-- name: Change ownership for public/dist/brandable_css
-  file:
-    path: "{{ canvas_dir }}/public/dist/brandable_css"
-    owner: "{{ username }}" 
-    group: "{{ username }}"
-    mode: '0755'
-    recurse: True 
-  tags: assets
-
-- name: Add env variables 
-  blockinfile:
-    block: |
-      export CANVAS_LMS_ADMIN_EMAIL="canvas@example.com"
-      export CANVAS_LMS_ADMIN_PASSWORD="Canvas123_"
-      export CANVAS_LMS_ACCOUNT_NAME="canvas"
-      export CANVAS_LMS_STATS_COLLECTION="opt_out"
-    dest: "/home/{{ username }}/.bashrc"
+# This section is added in case you manually want to execute the command, it's not recommended.
+# - name: Add env variables 
+#   blockinfile:
+#     block: |
+#       export CANVAS_LMS_ADMIN_EMAIL="{{ canvas_server_admin }}"
+#       export CANVAS_LMS_ADMIN_PASSWORD="{{ postgres_password }}"
+#       export CANVAS_LMS_ACCOUNT_NAME="{{ postgres_username }}"
+#       export CANVAS_LMS_STATS_COLLECTION="opt_out"
+#     dest: "/home/{{ username }}/.bashrc"
+#   tags: rake
 
 
 # Database Population
 # https://github.com/instructure/canvas-lms/wiki/Production-Start#database-population
-# - name: Populate DB 
-#   become_user: vagrant 
-#   shell: 
-#     chdir: "{{ canvas_dir }}"
-#     cmd: "RAILS_ENV=production bundle exec rake db:initial_setup"
-#   environment: 
-#     - CANVAS_LMS_ADMIN_EMAIL: "{{ canvas_server_admin }}"
-#     - CANVAS_LMS_ADMIN_PASSWORD: "{{ postgres_password }}"
-#     - CANVAS_LMS_ACCOUNT_NAME: "{{ postgres_username }}"
-#     - CANVAS_LMS_STATS_COLLECTION: "opt_out"
-#     - PATH: "{{ ansible_env.PATH }}:/home/vagrant/.gem/ruby/2.6.0/bin/"
-#   tags: db-config
+- name: Populate DB 
+  become_user: "{{ username }}"
+  shell: RAILS_ENV=production bundle exec rake db:initial_setup
+  args:
+    chdir: "{{ canvas_dir }}"
+  environment: 
+    - CANVAS_LMS_ADMIN_EMAIL: "{{ canvas_server_admin }}"
+    - CANVAS_LMS_ADMIN_PASSWORD: "{{ postgres_password }}"
+    - CANVAS_LMS_ACCOUNT_NAME: "{{ postgres_username }}"
+    - CANVAS_LMS_STATS_COLLECTION: "opt_out"
+    #- PATH: "{{ ansible_env.PATH }}:/home/vagrant/.gem/ruby/2.6.0/bin/"
+  tags: rake
+
+- name: Change ownership for assets
+  command: > 
+    chown -R canvasuser config/environment.rb log tmp public/assets
+    app/stylesheets/_brandable_variables_defaults_autogenerated.scss
+    app/stylesheets/brandable_css_brands Gemfile.lock config.ru
+  args:
+    chdir: "{{ canvas_dir }}"
+    warn: False
+  tags:
+  - part_2  
+  - assets
+
+- name: Change ownership for generated file 
+  command: "chown -R canvasuser {{ canvas_dir }}/public/dist/brandable_css"
+  args:
+    warn: False
 
 # Passenger installation 
 # https://www.phusionpassenger.com/library/install/apache/install/oss/bionic/#step-1:-install-passenger-packages
@@ -265,3 +261,44 @@
   command: "a2ensite canvas"
   tags: apache
 
+- name: Install remaining packages 
+  apt:
+    name: "{{ remaining_packages }}"
+
+- name: Copy redis config files
+  template:
+    src: "{{ item }}.j2"
+    dest: "{{ canvas_dir }}/config/{{ item }}.yml"
+  loop: "{{ redis_config_files }}"
+  tags: redis 
+
+- name: Change ownership and permissions for redis files 
+  command: "chown canvasuser {{ canvas_dir }}/config/{{ item }}.yml"
+  args:
+    warn: false
+  loop: "{{ redis_config_files }}"
+  tags: redis 
+
+- name: Change mode for cache_store file 
+  command: "chmod 400 {{ canvas_dir }}/config/{{ item }}.yml"
+  args:
+    warn: false  
+  loop: "{{ redis_config_files }}"
+  tags: redis 
+
+- name: Automated jobs symlink 
+  file: 
+    state: link 
+    src: "{{ canvas_dir }}/script/canvas_init"
+    dest: /etc/init.d/canvas_init
+
+- name: Run commands for automated jobs 
+  command: "{{ item }}"
+  args:
+    chdir: "{{ canvas_dir }}"
+  loop:
+  - "update-rc.d canvas_init defaults"
+  - "/etc/init.d/canvas_init start"
+
+- name: Restart apache2 
+  command: /etc/init.d/apache2 restart

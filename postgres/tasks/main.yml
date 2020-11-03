@@ -7,6 +7,7 @@
     content: "{{ item.repo }}"
     dest: "{{ item.dest }}"
   loop: "{{ postgres_repo }}"
+  tags: pre_reqs
 
 - name: Add postgresql key 
   apt_key:
@@ -16,6 +17,7 @@
   apt:
     name: "{{ packages }}"
     update_cache: True 
+  tags: pre_reqs
 
 # Configuring Postgresql 
 # https://github.com/instructure/canvas-lms/wiki/Production-Start#configuring-postgres
@@ -27,30 +29,37 @@
     line: "listen_addresses = '*'"
     regexp: "^#listen_addresses"
     path: "{{ postgres_conf_dir}}/postgresql.conf"
-  tags: postgres-cfg
+  notify: restart postgres 
+  tags: postgres_config
 
 - name: Modify pg_hba.conf to allow all connections 
-  blockinfile:
-    block: |
-      local   all postgres                trust
-      local   all all                     trust
-      host  all  all 0.0.0.0/0           trust
-      host  all  all ::1/128             trust
-      host  all  all 192.168.100.201/16  trust
-    path: "{{ postgres_conf_dir }}/pg_hba.conf"
-  tags: postgres-cfg
+  template:
+    src: pg_hba.j2
+    dest: "{{ postgres_conf_dir }}/pg_hba.conf"
+  notify: restart postgres 
+  tags: postgres_config
+
+# Set system username as postgres user 
+- name: create default user 
+  become_user: postgres 
+  postgresql_user: 
+    db: postgres
+    name: "{{ username }}"
+    role_attr_flags: SUPERUSER
+  tags: postgres_config
 
 - name: create canvas user
   become_user: postgres  
   postgresql_user:
     db: postgres 
     name: canvas 
-    password: canvas
-  tags: postgres-cfg
+    password: canvas123
+    role_attr_flags: NOCREATEDB,NOSUPERUSER,NOCREATEROLE
+  tags: postgres_config
 
 - name: create canvas db 
   become_user: postgres 
   postgresql_db:
     name: canvas_production 
     owner: canvas 
-  tags: postgres-cfg
+  tags: postgres_config

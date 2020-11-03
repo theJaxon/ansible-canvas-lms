@@ -9,7 +9,7 @@ development:
   # ssl: true
 
 production:
-  domain: "testcanvas.com"
+  domain: {{ canvas_server_name }}
   # whether this instance of canvas is served over ssl (https) or not
   # defaults to true for production, false for test/development
   ssl: false # NOT SUITABLE FOR PRODUCTION

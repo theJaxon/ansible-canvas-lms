@@ -1,7 +1,8 @@
-- hosts: db 
+- hosts: app
   roles:
   - postgres
   
 - hosts: app 
   roles:
   - canvas
+# 206.189.61.83
