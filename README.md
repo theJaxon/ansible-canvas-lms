@@ -8,9 +8,6 @@ Example Playbook
 - hosts: all
   roles:
   - postgres
-  
-- hosts: all 
-  roles:
   - canvas
 ```
 
