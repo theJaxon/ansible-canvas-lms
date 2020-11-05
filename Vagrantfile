@@ -23,7 +23,6 @@ Vagrant.configure("2") do |config|
       controller.vm.box = "bento/centos-8.2"
       controller.vm.hostname = "controller"
       controller.vm.network "private_network", ip: "192.168.100.202"
-      controller.vm.provision "shell", path: "controller.sh"
     end
   end
   

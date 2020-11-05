@@ -4,7 +4,7 @@
 - name: Add canvasuser 
   user:
     name: canvasuser 
-    password: '*' # disabled password https://docs.ansible.com/ansible/latest/collections/ansible/builtin/user_module.html#parameter-password
+    password: '*'
     comment: canvas
 
 - name: Check if canvas dir is present
@@ -49,41 +49,25 @@
     extra_opts: [--strip-components=1] # Extract without the parent directory
   tags: pre_req
 
-- name: Add ruby repository 
+- name: Add nodeJS, yarn and passenger keys 
+  apt_key:
+    url: "{{ item.key | d(omit) }}"
+    keyserver: "{{ item.keyserver | d(omit) }}"
+    id: "{{ item.id | d(omit) }}"
+  loop: "{{ keys }}"
+  tags: pre_req
+
+- name: Add ruby, node, yarn redis and passenger repos 
   apt_repository:
-    repo: "{{ ruby_repo }}"
+    repo: "{{ item.repo }}"
     update_cache: True 
+  loop: "{{ repos }}"
   tags: pre_req
   
-- name: Install Ruby 
+- name: Install base software 
   apt:
-    name: "{{ ruby_dependencies }}"
+    name: "{{ base_software }}"
     state: present 
-  tags: pre_req
-
-- name: Add node and yarn repos 
-  copy:
-    content: "{{ item.content }}"
-    dest: "{{ item.dest }}"
-  loop: "{{ repos }}"
-  tags: pre_req
-
-- name: Add nodeJS and yarn keys 
-  apt_key:
-    url: "{{ item.key }}"
-  loop: "{{ repos }}"
-  tags: pre_req
-
-- name: Add redis server repo
-  apt_repository:
-    repo: "{{ redis_ppa }}"
-  tags: pre_req
-
-- name: Update cache and install nodeJS and yarn 
-  apt:
-    name: "{{ item.name }}"
-    update_cache: True 
-  loop: "{{ repos }}"
   tags: pre_req
 
 - name: Install required gems  
@@ -95,7 +79,6 @@
   loop: "{{ gems }}"
   tags: pre_req
 
-# Needs sudo
 - name: Run bundle install 
   become_user: "{{ username }}"
   command: bundle _2.1.4_ install --path vendor/bundle
@@ -124,10 +107,6 @@
   loop: "{{ default_config_files }}"
   tags: config
 
-# https://github.com/instructure/canvas-lms/wiki/Production-Start#database-configuration
-# https://github.com/instructure/canvas-lms/wiki/Production-Start#outgoing-mail-configuration
-# https://github.com/instructure/canvas-lms/wiki/Production-Start#url-configuration
-# https://github.com/instructure/canvas-lms/wiki/Production-Start#security-configuration
 - name: copy configuration files 
   template:
     src: "{{ item }}.j2"
@@ -176,7 +155,6 @@
 #     dest: "/home/{{ username }}/.bashrc"
 #   tags: rake
 
-
 # Database Population
 # https://github.com/instructure/canvas-lms/wiki/Production-Start#database-population
 - name: Populate DB 
@@ -189,7 +167,6 @@
     - CANVAS_LMS_ADMIN_PASSWORD: "{{ postgres_password }}"
     - CANVAS_LMS_ACCOUNT_NAME: "{{ postgres_username }}"
     - CANVAS_LMS_STATS_COLLECTION: "opt_out"
-    #- PATH: "{{ ansible_env.PATH }}:/home/vagrant/.gem/ruby/2.6.0/bin/"
   tags: rake
 
 - name: Change ownership for assets
@@ -200,38 +177,19 @@
   args:
     chdir: "{{ canvas_dir }}"
     warn: False
-  tags:
-  - part_2  
-  - assets
+  tags: config
 
 - name: Change ownership for generated file 
   command: "chown -R canvasuser {{ canvas_dir }}/public/dist/brandable_css"
   args:
     warn: False
-
-# Passenger installation 
-# https://www.phusionpassenger.com/library/install/apache/install/oss/bionic/#step-1:-install-passenger-packages
-- name: Add passenger key
-  apt_key:
-    keyserver: "{{ item.keyserver }}"
-    id: "{{ item.key_id }}"
-  loop: "{{ passenger }}"
-  tags: passenger 
-
-- name: Add passenger repo 
-  copy:
-    content: deb https://oss-binaries.phusionpassenger.com/apt/passenger bionic main
-    dest: "{{ repo_dir }}/passenger.list"
-  tags: passenger 
+  tags: config
 
 - name: Update cache and install apache, passenger and passenger apache module 
   apt:
     name: "{{ item }}"
     update_cache: True 
-  loop:
-  - passenger 
-  - apache2
-  - libapache2-mod-passenger
+  loop: "{{ web_packages }}"
   tags: passenger 
     
 # https://www.phusionpassenger.com/library/install/apache/install/oss/bionic/#step-2:-enable-the-passenger-apache-module-and-restart-apache
@@ -239,10 +197,7 @@
   apache2_module:
     name: "{{ item }}"
     state: present 
-  loop: 
-  - passenger 
-  - rewrite
-  - ssl 
+  loop: "{{ apache2_modules }}"
   tags: passenger 
 
 - name: Remove symlink for default configured site 

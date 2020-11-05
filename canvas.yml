@@ -1,7 +1,4 @@
-- hosts: app
+- hosts: localhost
   roles:
   - postgres
-  
-- hosts: app 
-  roles:
   - canvas

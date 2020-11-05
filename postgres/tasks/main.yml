@@ -2,16 +2,15 @@
 # tasks file for postgres
 # https://github.com/instructure/canvas-lms/wiki/Production-Start#database-installation-and-configuration
 # https://www.postgresql.org/download/linux/ubuntu/
-- name: Add postgresql repo 
-  copy:
-    content: "{{ item.repo }}"
-    dest: "{{ item.dest }}"
-  loop: "{{ postgres_repo }}"
-  tags: pre_reqs
-
 - name: Add postgresql key 
   apt_key:
     url: "{{ postgres_key }}"
+  tags: pre_reqs
+
+- name: Add postgresql repo 
+  apt_repository:
+    repo: deb http://apt.postgresql.org/pub/repos/apt bionic-pgdg main
+  tags: pre_reqs
 
 - name: Update cache and install required packages
   apt:
